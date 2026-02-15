@@ -1,0 +1,524 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LLM Service",
+    "description": "Ollama-backed API: list/load models, search library, pull with progress, prompt with context.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/models": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Api List Models",
+        "description": "Returns list of locally available LLM models.",
+        "operationId": "api_list_models_api_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/load": {
+      "post": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Api Load Model",
+        "description": "Load or switch the active LLM model. May take time.",
+        "operationId": "api_load_model_api_models_load_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/active": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Api Active Model",
+        "description": "Returns the active (selected) LLM model name from DB, or currently running from Ollama.",
+        "operationId": "api_active_model_api_models_active_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Api Set Active Model",
+        "description": "Set the active model in DB (does not load it; use /api/models/load to load).",
+        "operationId": "api_set_active_model_api_models_active_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/{model_name}": {
+      "delete": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Api Delete Model",
+        "description": "Delete a model from local Ollama. Clears active model if it was the deleted one.",
+        "operationId": "api_delete_model_api_models__model_name__delete",
+        "parameters": [
+          {
+            "name": "model_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/search": {
+      "get": {
+        "tags": [
+          "Library"
+        ],
+        "summary": "Api Library Search",
+        "description": "Search Ollama library (ollama.com) for models. Optional query filters by name.",
+        "operationId": "api_library_search_api_library_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/pull": {
+      "post": {
+        "tags": [
+          "Library"
+        ],
+        "summary": "Api Library Pull",
+        "description": "Pull model from Ollama library; streams progress as NDJSON.",
+        "operationId": "api_library_pull_api_library_pull_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PullRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/active/capabilities": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Api Active Model Capabilities",
+        "description": "Returns capabilities/info of the active model from Ollama show.",
+        "operationId": "api_active_model_capabilities_api_models_active_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prompt": {
+      "post": {
+        "tags": [
+          "Prompt"
+        ],
+        "summary": "Api Prompt",
+        "description": "Send prompt to the active model and return response. Optionally stream.",
+        "operationId": "api_prompt_api_prompt_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/context": {
+      "get": {
+        "tags": [
+          "Context"
+        ],
+        "summary": "Api Get Context",
+        "description": "Get current context prompt.",
+        "operationId": "api_get_context_api_context_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Context"
+        ],
+        "summary": "Api Set Context",
+        "description": "Set context/system prompt. Remains until a new context is set.",
+        "operationId": "api_set_context_api_context_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContextRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health",
+        "description": "Service and Ollama host status.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ContextRequest": {
+        "properties": {
+          "context": {
+            "type": "string",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "context"
+        ],
+        "title": "ContextRequest",
+        "examples": [
+          {
+            "context": "You are a helpful coding assistant."
+          }
+        ]
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LoadModelRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "LoadModelRequest",
+        "examples": [
+          {
+            "model": "llama3.2"
+          }
+        ]
+      },
+      "PromptRequest": {
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "stream": {
+            "type": "boolean",
+            "title": "Stream",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "title": "PromptRequest",
+        "examples": [
+          {
+            "prompt": "What is 2+2?",
+            "stream": false
+          }
+        ]
+      },
+      "PullRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model"
+        ],
+        "title": "PullRequest",
+        "examples": [
+          {
+            "model": "llama3.2"
+          }
+        ]
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

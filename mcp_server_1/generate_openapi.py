@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""Generate OpenAPI (Swagger) JSON and YAML for the MCP server tools."""
+import json
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+OUT_DIR = Path(__file__).resolve().parent
+
+# OpenAPI 3.0 spec documenting MCP server tools as operations
+OPENAPI = {
+    "openapi": "3.0.3",
+    "info": {
+        "title": "MCP Server - Local DB",
+        "description": "MCP server exposing local SQLite CRUD as tools. Connect via MCP protocol (e.g. streamable-http at /mcp). This spec documents the tool interfaces.",
+        "version": "1.0.0",
+    },
+    "servers": [{"url": "http://localhost:8001/mcp", "description": "MCP Server (default port 8001)"}],
+    "paths": {
+        "/tools/create_record": {
+            "post": {
+                "summary": "create_record",
+                "description": "Create a new record in the given table. data is a JSON object of fields (e.g. {\"name\": \"Alice\", \"email\": \"alice@example.com\"}).",
+                "operationId": "create_record",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["table_name", "data"],
+                                "properties": {
+                                    "table_name": {"type": "string", "description": "Table name"},
+                                    "data": {"type": "object", "additionalProperties": True, "description": "Record fields as JSON object"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "Created record with id, table_name, data, created_at, updated_at"}},
+            }
+        },
+        "/tools/get_record": {
+            "post": {
+                "summary": "get_record",
+                "description": "Get a single record by table name and id. Returns null if not found.",
+                "operationId": "get_record",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["table_name", "record_id"],
+                                "properties": {
+                                    "table_name": {"type": "string"},
+                                    "record_id": {"type": "integer"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "Record or null"}},
+            }
+        },
+        "/tools/list_records": {
+            "post": {
+                "summary": "list_records",
+                "description": "List records in a table, newest first.",
+                "operationId": "list_records",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "table_name": {"type": "string"},
+                                    "limit": {"type": "integer", "default": 100},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "List of records"}},
+            }
+        },
+        "/tools/update_record": {
+            "post": {
+                "summary": "update_record",
+                "description": "Update an existing record. data is merged with existing fields.",
+                "operationId": "update_record",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["table_name", "record_id", "data"],
+                                "properties": {
+                                    "table_name": {"type": "string"},
+                                    "record_id": {"type": "integer"},
+                                    "data": {"type": "object", "additionalProperties": True},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "Updated record or null"}},
+            }
+        },
+        "/tools/delete_record": {
+            "post": {
+                "summary": "delete_record",
+                "description": "Delete a record by table name and id.",
+                "operationId": "delete_record",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["table_name", "record_id"],
+                                "properties": {
+                                    "table_name": {"type": "string"},
+                                    "record_id": {"type": "integer"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "Object with deleted, table_name, record_id"}},
+            }
+        },
+        "/tools/list_tables": {
+            "post": {
+                "summary": "list_tables",
+                "description": "List all table names that have at least one record.",
+                "operationId": "list_tables",
+                "requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}},
+                "responses": {"200": {"description": "Array of table name strings"}},
+            }
+        },
+        "/tools/execute_instruction": {
+            "post": {
+                "summary": "execute_instruction",
+                "description": "Execute a database operation from a short natural-language instruction (e.g. 'add a record in users with name: John', 'list all from items', 'delete record 5 from users').",
+                "operationId": "execute_instruction",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["instruction"],
+                                "properties": {
+                                    "instruction": {"type": "string", "description": "Natural language instruction"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "Object with success, action, result or error"}},
+            }
+        },
+    },
+}
+
+
+def main():
+    out_json = OUT_DIR / "openapi.json"
+    out_yaml = OUT_DIR / "swagger.yaml"
+    with open(out_json, "w") as f:
+        json.dump(OPENAPI, f, indent=2)
+    print(f"Wrote {out_json}")
+    if yaml:
+        with open(out_yaml, "w") as f:
+            yaml.dump(OPENAPI, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        print(f"Wrote {out_yaml}")
+    else:
+        print("Install pyyaml to generate swagger.yaml")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,56 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "LLM Service (Ollama)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
+      "cwd": "${workspaceFolder}/backend/llm_service",
+      "env": {},
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "LLM Service (no reload)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["main:app", "--host", "0.0.0.0", "--port", "8000"],
+      "cwd": "${workspaceFolder}/backend/llm_service",
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Web UI",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "${workspaceFolder}/webui",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "MCP Server (Local DB)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/mcp_server_1/server.py",
+      "python": "${workspaceFolder}/mcp_server_1/.venv/bin/python",
+      "cwd": "${workspaceFolder}/mcp_server_1",
+      "env": { "MCP_PORT": "8001", "FASTMCP_PORT": "8001" },
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Backend + Frontend",
+      "configurations": ["LLM Service (Ollama)", "Web UI"]
+    },
+    {
+      "name": "Backend + Frontend + MCP Server",
+      "configurations": ["LLM Service (Ollama)", "Web UI", "MCP Server (Local DB)"]
+    }
+  ]
+}
