@@ -175,13 +175,41 @@ paths:
           content:
             application/json:
               schema: {}
+  /api/agent/query:
+    post:
+      tags:
+      - Agent
+      summary: Api Agent Query
+      description: 'MCP-powered agent: uses the active model (from web UI). On each
+        query, fetches current tools from the MCP server,
+
+        invokes the right tool(s), and returns a context-aware response.'
+      operationId: api_agent_query_api_agent_query_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentQueryRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/prompt:
     post:
       tags:
       - Prompt
       summary: Api Prompt
-      description: Send prompt to the active model and return response. Optionally
-        stream.
+      description: Send prompt to the active model and return response. Table/schema
+        requests are routed to the agent (MCP capabilities).
       operationId: api_prompt_api_prompt_post
       requestBody:
         content:
@@ -253,6 +281,19 @@ paths:
               schema: {}
 components:
   schemas:
+    AgentQueryRequest:
+      properties:
+        query:
+          type: string
+          title: Query
+      type: object
+      required:
+      - query
+      title: AgentQueryRequest
+      description: 'Request for MCP-powered agent: agent discovers tools from MCP
+        server and returns context-aware response.'
+      examples:
+      - query: List all tables in the database
     ContextRequest:
       properties:
         context:

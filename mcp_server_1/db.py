@@ -29,6 +29,16 @@ def init_db():
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_records_table ON records(table_name)"
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS table_schemas (
+            table_name TEXT PRIMARY KEY,
+            fields_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -109,10 +119,89 @@ def delete_record(table_name: str, record_id: int) -> bool:
 
 
 def list_tables() -> list[str]:
-    """Return distinct table names."""
+    """Return distinct table names (from records and from table_schemas)."""
     conn = _get_conn()
     rows = conn.execute(
         "SELECT DISTINCT table_name FROM records ORDER BY table_name"
     ).fetchall()
+    schema_rows = conn.execute(
+        "SELECT table_name FROM table_schemas ORDER BY table_name"
+    ).fetchall()
     conn.close()
-    return [r[0] for r in rows]
+    names = {r[0] for r in rows}
+    names.update(r[0] for r in schema_rows)
+    return sorted(names)
+
+
+def create_table_schema(table_name: str, fields: list[dict]) -> dict:
+    """
+    Register a new table with the given fields. fields is a list of {"name": str, "type": str} (type defaults to "text").
+    Does not create a real SQL table; records for this table_name still go into the records table.
+    """
+    now = datetime.utcnow().isoformat() + "Z"
+    normalized = []
+    for f in fields:
+        if isinstance(f, dict):
+            normalized.append({"name": str(f.get("name", f.get("field", ""))).strip(), "type": str(f.get("type", "text")).lower() or "text"})
+        else:
+            normalized.append({"name": str(f).strip(), "type": "text"})
+    normalized = [x for x in normalized if x["name"]]
+    if not normalized:
+        raise ValueError("At least one field name is required")
+    conn = _get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO table_schemas (table_name, fields_json, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        (table_name.strip(), json.dumps(normalized), now, now),
+    )
+    conn.commit()
+    conn.close()
+    return {"table_name": table_name, "fields": normalized, "created_at": now}
+
+
+def get_table_schema(table_name: str) -> list[dict] | None:
+    """Return the schema (list of {name, type}) for a table, or None if not defined."""
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT fields_json FROM table_schemas WHERE table_name = ?",
+        (table_name,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return json.loads(row[0])
+
+
+def alter_table_schema(table_name: str, fields: list[dict]) -> dict:
+    """Update the table schema (replace with new field list). Table must exist."""
+    existing = get_table_schema(table_name)
+    if not existing:
+        raise ValueError(f"Table '{table_name}' does not exist. Create it first with create_table.")
+    now = datetime.utcnow().isoformat() + "Z"
+    normalized = []
+    for f in fields:
+        if isinstance(f, dict):
+            normalized.append({"name": str(f.get("name", f.get("field", ""))).strip(), "type": str(f.get("type", "text")).lower() or "text"})
+        else:
+            normalized.append({"name": str(f).strip(), "type": "text"})
+    normalized = [x for x in normalized if x["name"]]
+    if not normalized:
+        raise ValueError("At least one field name is required")
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE table_schemas SET fields_json = ?, updated_at = ? WHERE table_name = ?",
+        (json.dumps(normalized), now, table_name),
+    )
+    conn.commit()
+    conn.close()
+    return {"table_name": table_name, "fields": normalized, "updated_at": now}
+
+
+def drop_table(table_name: str) -> dict:
+    """Delete all records for this table and remove its schema. Returns count of records deleted."""
+    conn = _get_conn()
+    cur = conn.execute("DELETE FROM records WHERE table_name = ?", (table_name,))
+    records_deleted = cur.rowcount
+    conn.execute("DELETE FROM table_schemas WHERE table_name = ?", (table_name,))
+    conn.commit()
+    conn.close()
+    return {"table_name": table_name, "records_deleted": records_deleted, "dropped": True}

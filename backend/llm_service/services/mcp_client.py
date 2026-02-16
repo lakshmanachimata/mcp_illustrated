@@ -1,33 +1,8 @@
-"""Call MCP server (mcp_server_1) tools. Used when user asks to add/store data in the DB."""
+"""Call MCP server (mcp_server_1) tools. Agent parses user prompt and invokes tools; no regex routing here."""
 import asyncio
 import json
-import re
 
 from config import MCP_SERVER_URL
-
-
-# Phrases that indicate the user wants to add/store something in the MCP server DB
-ADD_TO_DB_PATTERNS = [
-    r"add\s+(?:these?\s+)?(?:survey\s+)?questions?\s*(?::|to\s+(?:the\s+)?(?:db|database))?",
-    r"add\s+(?:to\s+(?:the\s+)?(?:db|database)|in\s+(?:mcp\s+)?(?:server\s+)?db)",
-    r"store\s+(?:these?\s+)?(?:survey\s+)?questions?\s*(?::|in\s+(?:the\s+)?(?:db|database))?",
-    r"store\s+(?:in\s+(?:the\s+)?(?:db|database)|in\s+mcp)",
-    r"save\s+(?:these?\s+)?(?:survey\s+)?questions?\s*(?::|to\s+(?:the\s+)?(?:db|database))?",
-    r"save\s+(?:to\s+(?:the\s+)?(?:db|database)|in\s+mcp)",
-    r"add\s+to\s+mcp_server_1",
-    r"add\s+to\s+mcp\s+server\s+db",
-]
-
-
-def should_use_mcp_db(prompt: str) -> bool:
-    """True if the prompt asks to add/store/save something in the database (use MCP server)."""
-    if not prompt or not prompt.strip():
-        return False
-    lower = prompt.strip().lower()
-    for pat in ADD_TO_DB_PATTERNS:
-        if re.search(pat, lower, re.IGNORECASE):
-            return True
-    return False
 
 
 def _call_mcp_sync(instruction: str) -> dict:

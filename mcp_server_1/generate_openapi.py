@@ -15,8 +15,8 @@ OPENAPI = {
     "openapi": "3.0.3",
     "info": {
         "title": "MCP Server - Local DB",
-        "description": "MCP server exposing local SQLite CRUD as tools. Connect via MCP protocol (e.g. streamable-http at /mcp). This spec documents the tool interfaces.",
-        "version": "1.0.0",
+        "description": "MCP server exposing database tools: create/alter/drop tables (with fields), CRUD records, list tables, get table schema, add survey questions, execute natural-language instructions. Connect via MCP protocol (streamable-http at /mcp).",
+        "version": "1.1.0",
     },
     "servers": [{"url": "http://localhost:8001/mcp", "description": "MCP Server (default port 8001)"}],
     "paths": {
@@ -146,7 +146,7 @@ OPENAPI = {
         "/tools/execute_instruction": {
             "post": {
                 "summary": "execute_instruction",
-                "description": "Execute a database operation from a short natural-language instruction (e.g. 'add a record in users with name: John', 'list all from items', 'delete record 5 from users').",
+                "description": "Execute a database operation from a short natural-language instruction (e.g. 'add a record in users with name: John', 'list all from items', 'delete record 5 from users', 'create table X with fields a, b').",
                 "operationId": "execute_instruction",
                 "requestBody": {
                     "required": True,
@@ -163,6 +163,118 @@ OPENAPI = {
                     },
                 },
                 "responses": {"200": {"description": "Object with success, action, result or error"}},
+            }
+        },
+        "/tools/create_table": {
+            "post": {
+                "summary": "create_table",
+                "description": "Create a new table with the given fields. fields can be comma-separated string (e.g. 'name, email, age'), list of names, or list of {name, type}. Types default to text.",
+                "operationId": "create_table",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["table_name", "fields"],
+                                "properties": {
+                                    "table_name": {"type": "string", "description": "Table name"},
+                                    "fields": {"description": "Comma-separated field names, or array of names, or array of {name, type}"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "Object with success, table_name, fields, created_at"}},
+            }
+        },
+        "/tools/alter_table": {
+            "post": {
+                "summary": "alter_table",
+                "description": "Alter a table's schema: replace with the new list of fields (e.g. 'name, email, phone' to add phone).",
+                "operationId": "alter_table",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["table_name", "fields"],
+                                "properties": {
+                                    "table_name": {"type": "string"},
+                                    "fields": {"description": "New field list: comma-separated string or array"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "Object with success, table_name, fields, updated_at"}},
+            }
+        },
+        "/tools/drop_table": {
+            "post": {
+                "summary": "drop_table",
+                "description": "Drop a table: remove its schema and delete all records in that table.",
+                "operationId": "drop_table",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["table_name"],
+                                "properties": {
+                                    "table_name": {"type": "string"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "Object with success, table_name, records_deleted, dropped"}},
+            }
+        },
+        "/tools/get_table_schema": {
+            "post": {
+                "summary": "get_table_schema",
+                "description": "Get the schema (field names and types) for a table. Returns null if table has no defined schema.",
+                "operationId": "get_table_schema",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["table_name"],
+                                "properties": {
+                                    "table_name": {"type": "string"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "Object with table_name, fields (array of {name, type}) or null"}},
+            }
+        },
+        "/tools/add_survey_questions": {
+            "post": {
+                "summary": "add_survey_questions",
+                "description": "Add one or more survey questions to the database. Pass questions as newline-separated or numbered list.",
+                "operationId": "add_survey_questions",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["questions_text"],
+                                "properties": {
+                                    "questions_text": {"type": "string", "description": "Newline or numbered list of questions"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "Object with success, created, records"}},
             }
         },
     },

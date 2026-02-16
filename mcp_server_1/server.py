@@ -1,6 +1,6 @@
 """
-MCP server with local DB CRUD. When the user specifies an action explicitly in a prompt,
-use the appropriate tool (or execute_instruction) to act as per the prompt.
+MCP server exposing tools as capabilities for the LLM service.
+Tools are annotated so the agent can discover and run queries against the local database.
 """
 import os
 import re
@@ -15,47 +15,134 @@ db.init_db()
 
 # Port 8001 by default so backend (LLM service) can use 8000
 _port = int(os.environ.get("MCP_PORT") or os.environ.get("FASTMCP_PORT") or "8001")
-mcp = FastMCP("Local DB", json_response=True, port=_port)
+mcp = FastMCP(
+    "Local DB",
+    instructions="Database tools exposed as capabilities for the LLM: run queries to create, alter, drop tables (with fields from prompt); create, read, update, delete records; list tables and get table schema.",
+    json_response=True,
+    port=_port,
+)
 
 
-@mcp.tool()
+@mcp.tool(description="Capability: Run a query to create a new record in a table. Args: table_name, data (JSON object of fields).")
 def create_record(table_name: str, data: dict[str, Any]) -> dict:
     """Create a new record in the given table. data is a JSON object of fields (e.g. {"name": "Alice", "email": "alice@example.com"})."""
     return db.create_record(table_name, data)
 
 
-@mcp.tool()
+@mcp.tool(description="Capability: Run a query to get a single record by table name and id. Returns null if not found.")
 def get_record(table_name: str, record_id: int) -> dict | None:
     """Get a single record by table name and id. Returns null if not found."""
     return db.get_record(table_name, record_id)
 
 
-@mcp.tool()
+@mcp.tool(description="Capability: Run a query to list records in a table (newest first). Use to list, show, or get all records.")
 def list_records(table_name: str, limit: int = 100) -> list[dict]:
     """List records in a table, newest first. Use when the user asks to list, show, or get all records."""
     return db.list_records(table_name, limit=limit)
 
 
-@mcp.tool()
+@mcp.tool(description="Capability: Run a query to update an existing record. data is merged with existing fields.")
 def update_record(table_name: str, record_id: int, data: dict[str, Any]) -> dict | None:
     """Update an existing record. data is merged with existing fields. Returns null if record not found."""
     return db.update_record(table_name, record_id, data)
 
 
-@mcp.tool()
+@mcp.tool(description="Capability: Run a query to delete a record by table name and id. Returns success status.")
 def delete_record(table_name: str, record_id: int) -> dict:
     """Delete a record by table name and id. Returns success status."""
     deleted = db.delete_record(table_name, record_id)
     return {"deleted": deleted, "table_name": table_name, "record_id": record_id}
 
 
-@mcp.tool()
+@mcp.tool(description="Capability: Run a query to list all table names that have at least one record.")
 def list_tables() -> list[str]:
     """List all table names that have at least one record. Use when the user asks what tables exist or to list tables."""
     return db.list_tables()
 
 
-@mcp.tool()
+def _parse_fields(fields: str | list[str] | list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Parse fields from prompt: 'name, email, age' or ['name','email'] or [{'name':'name','type':'text'}]."""
+    if isinstance(fields, list):
+        if not fields:
+            return []
+        if isinstance(fields[0], dict):
+            return [{"name": str(f.get("name", f.get("field", ""))).strip(), "type": str(f.get("type", "text")).lower() or "text"} for f in fields]
+        return [{"name": str(f).strip(), "type": "text"} for f in fields if str(f).strip()]
+    s = (fields or "").strip()
+    if not s:
+        return []
+    out = []
+    for part in re.split(r"[,;]", s):
+        part = part.strip()
+        if not part:
+            continue
+        # "name text" or "name" or "name: text"
+        if re.match(r"^\w+\s+(?:text|integer|int|real|blob)$", part, re.I):
+            name, _, typ = part.partition(" ")
+            out.append({"name": name.strip(), "type": typ.strip().lower()})
+        elif ":" in part:
+            name, _, typ = part.partition(":")
+            out.append({"name": name.strip(), "type": (typ.strip() or "text").lower()})
+        else:
+            out.append({"name": part, "type": "text"})
+    return out
+
+
+@mcp.tool(description="Capability: Run a query to create a new table with the given fields (e.g. fields='name, email, age' or list of field names). Fields can be supplied from the user prompt.")
+def create_table(table_name: str, fields: str | list[str] | list[dict[str, Any]]) -> dict:
+    """Create a new table with the given fields. fields can be comma-separated string (e.g. 'name, email, age'), list of names, or list of {name, type}. Types default to text."""
+    table_name = table_name.strip()
+    if not table_name:
+        return {"success": False, "error": "table_name is required"}
+    parsed = _parse_fields(fields)
+    if not parsed:
+        return {"success": False, "error": "At least one field is required (e.g. 'name, email, age')"}
+    try:
+        result = db.create_table_schema(table_name, parsed)
+        return {"success": True, **result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool(description="Capability: Run a query to alter an existing table's schema (replace with new fields). Supply new field list from prompt.")
+def alter_table(table_name: str, fields: str | list[str] | list[dict[str, Any]]) -> dict:
+    """Alter a table's schema: replace with the new list of fields. fields can be comma-separated string or list (e.g. 'name, email, phone' to add phone)."""
+    table_name = table_name.strip()
+    if not table_name:
+        return {"success": False, "error": "table_name is required"}
+    parsed = _parse_fields(fields)
+    if not parsed:
+        return {"success": False, "error": "At least one field is required"}
+    try:
+        result = db.alter_table_schema(table_name, parsed)
+        return {"success": True, **result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool(description="Capability: Run a query to delete (drop) a table and all its records. Use when user asks to drop or delete a table.")
+def drop_table(table_name: str) -> dict:
+    """Drop a table: remove its schema and delete all records in that table."""
+    table_name = table_name.strip()
+    if not table_name:
+        return {"success": False, "error": "table_name is required"}
+    try:
+        result = db.drop_table(table_name)
+        return {"success": True, **result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool(description="Capability: Run a query to get the schema (field names and types) of a table, if defined.")
+def get_table_schema(table_name: str) -> dict | None:
+    """Get the schema (list of fields with names and types) for a table. Returns null if table has no defined schema."""
+    schema = db.get_table_schema(table_name.strip())
+    if schema is None:
+        return None
+    return {"table_name": table_name, "fields": schema}
+
+
+@mcp.tool(description="Capability: Run a query to add survey questions to the database. Pass newline-separated or numbered list.")
 def add_survey_questions(questions_text: str) -> dict:
     """Add one or more survey questions to the database. Pass questions as newline-separated or numbered list (e.g. '1. How old are you? 2. What is your gender?'). Each line/item is stored as one record in table survey_questions."""
     questions = _split_survey_questions(questions_text)
@@ -151,10 +238,29 @@ def _parse_instruction(instruction: str) -> dict | None:
     if m:
         return {"action": "delete", "table_name": m.group(2), "record_id": int(m.group(1))}
 
+    # create table ... with fields ...
+    m = re.search(r"(?:create|add)\s+(?:a\s+)?table\s+['\"]?(\w+)['\"]?\s+(?:with\s+)?(?:fields?\s+)?(.*)", instruction_lower, re.DOTALL | re.I)
+    if m:
+        table = m.group(1)
+        rest = (m.group(2) or "").strip()
+        if rest:
+            return {"action": "create_table", "table_name": table, "fields": rest}
+        return {"action": "create_table", "table_name": table, "fields": ""}
+
+    # alter table ... (add/drop columns or set new fields)
+    m = re.search(r"alter\s+table\s+['\"]?(\w+)['\"]?\s+(?:set\s+)?(?:fields?\s+)?(.*)", instruction_lower, re.DOTALL | re.I)
+    if m:
+        return {"action": "alter_table", "table_name": m.group(1), "fields": (m.group(2) or "").strip()}
+
+    # drop / delete table
+    m = re.search(r"(?:drop|delete|remove)\s+(?:the\s+)?table\s+['\"]?(\w+)['\"]?", instruction_lower)
+    if m:
+        return {"action": "drop_table", "table_name": m.group(1)}
+
     return None
 
 
-@mcp.tool()
+@mcp.tool(description="Capability: Run a natural-language query to perform one database operation (add, list, get, update, delete). Use when the user states what to do in one sentence.")
 def execute_instruction(instruction: str) -> dict:
     """
     Execute a database operation from a short natural-language instruction.
@@ -192,6 +298,25 @@ def execute_instruction(instruction: str) -> dict:
         if action == "delete":
             deleted = db.delete_record(table_name, parsed["record_id"])
             return {"success": True, "action": "delete", "result": {"deleted": deleted}}
+        if action == "create_table":
+            fields_str = parsed.get("fields", "")
+            parsed_fields = _parse_fields(fields_str)
+            if not parsed_fields and fields_str:
+                parsed_fields = _parse_fields([x.strip() for x in re.split(r"[,;]", fields_str) if x.strip()])
+            if not parsed_fields:
+                return {"success": False, "error": "create_table requires fields (e.g. 'name, email, age')"}
+            out = db.create_table_schema(table_name, parsed_fields)
+            return {"success": True, "action": "create_table", "result": out}
+        if action == "alter_table":
+            fields_str = parsed.get("fields", "")
+            parsed_fields = _parse_fields(fields_str)
+            if not parsed_fields:
+                return {"success": False, "error": "alter_table requires new field list"}
+            out = db.alter_table_schema(table_name, parsed_fields)
+            return {"success": True, "action": "alter_table", "result": out}
+        if action == "drop_table":
+            out = db.drop_table(table_name)
+            return {"success": True, "action": "drop_table", "result": out}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -200,12 +325,11 @@ def execute_instruction(instruction: str) -> dict:
 
 @mcp.prompt()
 def db_instructions() -> str:
-    """Use this when the user explicitly asks to create, read, update, or delete data. Call the appropriate tool: create_record, get_record, list_records, update_record, delete_record, or execute_instruction with their exact request."""
+    """Use when the user asks to manage data or schema: create/alter/drop tables (with fields from prompt), or create/read/update/delete records."""
     return (
-        "When the user explicitly asks to create, read, update, or delete data in the database, "
-        "use the available tools: create_record (to add), get_record or list_records (to read), "
-        "update_record (to update), delete_record (to remove), or execute_instruction (to perform "
-        "a single action from a short natural-language instruction). Act exactly as specified in the user's prompt."
+        "When the user asks to manage the database, use the right tool. For tables: create_table (with fields from the prompt, e.g. 'name, email, age'), "
+        "alter_table (new field list), drop_table. For records: create_record, get_record, list_records, update_record, delete_record. "
+        "Or use execute_instruction with a short natural-language sentence. Act as specified in the user's prompt."
     )
 
 

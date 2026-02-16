@@ -15,7 +15,8 @@ from pydantic import BaseModel
 
 import database
 from config import OLLAMA_HOST
-from services.mcp_client import call_mcp_execute_instruction, should_use_mcp_db
+from services.agent_service import get_mcp_tools, run_agent_query
+from services.mcp_client import call_mcp_execute_instruction  # optional: direct MCP call without agent
 from services.ollama_client import (
     get_running_models,
     generate_response,
@@ -34,6 +35,13 @@ async def lifespan(app: FastAPI):
     logger.info("LLM Service starting (pid=%s)", pid)
     print(f"[LLM Service] starting pid={pid}", flush=True)
     database.init_db()
+    # Fetch and print MCP server capabilities before any query
+    try:
+        await get_mcp_tools()
+        print("[LLM Service] MCP capabilities loaded and printed above.", flush=True)
+    except Exception as e:
+        logger.warning("Could not load MCP capabilities at startup (is MCP server running?): %s", e)
+        print(f"[LLM Service] MCP tools not available at startup: {e}", flush=True)
     yield
     logger.info("LLM Service shutting down")
     print("[LLM Service] shutting down", flush=True)
@@ -68,6 +76,13 @@ class PromptRequest(BaseModel):
     stream: bool = False
 
     model_config = {"json_schema_extra": {"examples": [{"prompt": "What is 2+2?", "stream": False}]}}
+
+
+class AgentQueryRequest(BaseModel):
+    """Request for MCP-powered agent: agent discovers tools from MCP server and returns context-aware response."""
+    query: str
+
+    model_config = {"json_schema_extra": {"examples": [{"query": "List all tables in the database"}]}}
 
 
 class ContextRequest(BaseModel):
@@ -236,34 +251,68 @@ def api_active_model_capabilities():
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/api/prompt", tags=["Prompt"])
-async def api_prompt(body: PromptRequest):
-    """Send prompt to the active model and return response. When user asks to add/store in DB, uses MCP server (mcp_server_1)."""
-    if should_use_mcp_db(body.prompt):
-        try:
-            mcp_result = await call_mcp_execute_instruction(body.prompt)
-            if mcp_result.get("success"):
-                result = mcp_result.get("result", mcp_result)
-                if isinstance(result, dict) and "created" in result:
-                    msg = f"Added {result.get('created', 0)} item(s) to the database (MCP server)."
-                else:
-                    msg = f"Done. Database result: {json.dumps(result, indent=2)}"
-                return {"response": msg, "model": "mcp_server_1", "mcp_result": mcp_result}
-            return {"response": f"Database action failed: {mcp_result.get('error', mcp_result)}", "model": "mcp_server_1", "mcp_result": mcp_result}
-        except Exception as e:
-            return {"response": f"Could not reach MCP server (is it running on port 8001?): {e}", "model": "mcp_server_1"}
-
+@app.post("/api/agent/query", tags=["Agent"])
+async def api_agent_query(body: AgentQueryRequest):
+    """
+    MCP-powered agent: uses the active model (from web UI). On each query, fetches current tools from the MCP server,
+    invokes the right tool(s), and returns a context-aware response.
+    """
+    logger.info("Agent query received: %s", body.query[:200] if body.query else "(empty)")
+    print(f"[LLM Service] POST /api/agent/query — query: {repr(body.query[:300])}", flush=True)
     active = database.get_setting("active_model")
     if not active:
         try:
             ps = get_running_models()
             models = getattr(ps, "models", None) or []
             if models:
-                active = models[0].get("name") or models[0].get("model") if isinstance(models[0], dict) else getattr(models[0], "name", None) or getattr(models[0], "model", None)
+                m = models[0]
+                active = m.get("name") or m.get("model") if isinstance(m, dict) else getattr(m, "name", None) or getattr(m, "model", None)
         except Exception:
             pass
     if not active:
-        raise HTTPException(status_code=400, detail="No active model selected or loaded")
+        raise HTTPException(status_code=400, detail="No active model selected or loaded. Choose a model in the web UI.")
+    try:
+        response_text = await run_agent_query(body.query, model=active)
+        return {"response": response_text, "model": active}
+    except Exception as e:
+        logger.exception("Agent query failed")
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+def _resolve_active_model():
+    """Resolve active model from DB or first running model."""
+    active = database.get_setting("active_model")
+    if not active:
+        try:
+            ps = get_running_models()
+            models = getattr(ps, "models", None) or []
+            if models:
+                m = models[0]
+                active = m.get("name") or m.get("model") if isinstance(m, dict) else getattr(m, "name", None) or getattr(m, "model", None)
+        except Exception:
+            pass
+    return active
+
+
+@app.post("/api/prompt", tags=["Prompt"])
+async def api_prompt(body: PromptRequest):
+    """Send prompt to the agent; the agent parses intent and calls MCP tools when needed. No regex routing."""
+    logger.info("Prompt received: %s", body.prompt[:200] if body.prompt else "(empty)")
+    print(f"[LLM Service] POST /api/prompt — passing to agent (agent parses intent): {repr(body.prompt[:200])}", flush=True)
+
+    active = _resolve_active_model()
+    if not active:
+        raise HTTPException(status_code=400, detail="No active model selected or loaded. Choose a model in the web UI.")
+
+    # Try agent first (agent decides from user message whether to use MCP tools)
+    try:
+        response_text = await run_agent_query(body.prompt, model=active, verbose=True)
+        return {"response": response_text, "model": active}
+    except Exception as e:
+        logger.warning("Agent failed, falling back to direct Ollama: %s", e)
+        print(f"[LLM Service] Agent failed, using direct Ollama: {e}", flush=True)
+
+    # Fallback: direct Ollama when agent/MCP unavailable
     context = database.get_setting("context_prompt") or ""
     try:
         if body.stream:
