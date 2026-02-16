@@ -1,9 +1,14 @@
 """FastAPI app for LLM service (Ollama)."""
 import asyncio
 import json
+import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(process)d] %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -25,8 +30,13 @@ from services.ollama_client import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    pid = os.getpid()
+    logger.info("LLM Service starting (pid=%s)", pid)
+    print(f"[LLM Service] starting pid={pid}", flush=True)
     database.init_db()
     yield
+    logger.info("LLM Service shutting down")
+    print("[LLM Service] shutting down", flush=True)
 
 
 app = FastAPI(
@@ -97,6 +107,9 @@ def _normalize_model(m):
 @app.get("/api/models", tags=["Models"])
 def api_list_models():
     """Returns list of locally available LLM models."""
+    pid = os.getpid()
+    logger.info("api_list_models called (pid=%s)", pid)
+    print(f"[LLM Service] api_list_models called pid={pid}", flush=True)
     try:
         resp = list_models()
         models = None

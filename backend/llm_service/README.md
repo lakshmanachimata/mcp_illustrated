@@ -20,6 +20,17 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 - API: http://localhost:8000  
+
+**If port 8000 is already in use:** stop the other process first, or you’ll see `[Errno 48] address already in use`. To find and kill it (macOS/Linux):
+```bash
+lsof -i :8000 -t | xargs kill
+```
+
+## Debugging (Cursor / VS Code)
+
+- Use launch config **"LLM Service (no reload)"** so the debugger attaches to the process that serves requests (with `--reload`, a child process serves and breakpoints don’t hit).
+- **Start the LLM Service first** so it can bind to 8000. If you start MCP Server or another app on 8000, free the port (see above) then start LLM Service again.
+- Breakpoints and `[LLM Service]` logs appear in the **Debug Console** when running under the debugger.  
 - **Swagger UI**: http://localhost:8000/docs  
 - **ReDoc**: http://localhost:8000/redoc  
 - **OpenAPI JSON**: http://localhost:8000/openapi.json  

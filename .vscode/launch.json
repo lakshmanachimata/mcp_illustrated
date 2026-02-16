@@ -8,6 +8,7 @@
       "module": "uvicorn",
       "args": ["main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
       "cwd": "${workspaceFolder}/backend/llm_service",
+      "python": "${workspaceFolder}/backend/llm_service/.venv/bin/python",
       "env": {},
       "justMyCode": false,
       "console": "integratedTerminal"
@@ -19,6 +20,7 @@
       "module": "uvicorn",
       "args": ["main:app", "--host", "0.0.0.0", "--port", "8000"],
       "cwd": "${workspaceFolder}/backend/llm_service",
+      "python": "${workspaceFolder}/backend/llm_service/.venv/bin/python",
       "justMyCode": false,
       "console": "integratedTerminal"
     },
@@ -49,8 +51,16 @@
       "configurations": ["LLM Service (Ollama)", "Web UI"]
     },
     {
+      "name": "Backend + Frontend (debug)",
+      "configurations": ["LLM Service (no reload)", "Web UI"]
+    },
+    {
       "name": "Backend + Frontend + MCP Server",
       "configurations": ["LLM Service (Ollama)", "Web UI", "MCP Server (Local DB)"]
+    },
+    {
+      "name": "Backend + Frontend + MCP Server (debug)",
+      "configurations": ["LLM Service (no reload)", "Web UI", "MCP Server (Local DB)"]
     }
   ]
 }
