@@ -55,14 +55,62 @@ def list_tables() -> list[str]:
     return db.list_tables()
 
 
+@mcp.tool()
+def add_survey_questions(questions_text: str) -> dict:
+    """Add one or more survey questions to the database. Pass questions as newline-separated or numbered list (e.g. '1. How old are you? 2. What is your gender?'). Each line/item is stored as one record in table survey_questions."""
+    questions = _split_survey_questions(questions_text)
+    if not questions:
+        return {"success": False, "error": "No questions found in text"}
+    created = []
+    for q in questions:
+        rec = db.create_record("survey_questions", {"text": q})
+        created.append(rec)
+    return {"success": True, "created": len(created), "records": created}
+
+
+def _split_survey_questions(text: str) -> list[str]:
+    """Split text into individual questions (by newlines or numbered items)."""
+    if not text or not text.strip():
+        return []
+    text = text.strip()
+    # Split by newlines first
+    parts = re.split(r"\n+", text)
+    questions = []
+    for p in parts:
+        p = p.strip()
+        # Remove leading numbering: "1. ", "1) ", "2. ", etc.
+        p = re.sub(r"^\s*\d+[.)]\s*", "", p).strip()
+        if p:
+            questions.append(p)
+    return questions if questions else [text]
+
+
 def _parse_instruction(instruction: str) -> dict | None:
     """
     Parse a simple natural-language instruction and return an action dict.
     Used when the user explicitly states what to do in a prompt.
     """
-    instruction = instruction.strip().lower()
+    raw = instruction.strip()
+    instruction_lower = raw.lower()
+    # add survey questions / add questions to db / add to database (capture rest as content)
+    m = re.search(r"(?:add|store|save)\s+(?:these?\s+)?(?:survey\s+)?questions?\s*(?::|to\s+(?:the\s+)?(?:db|database))?\s*(.*)", instruction_lower, re.DOTALL | re.I)
+    if m:
+        content = (m.group(1) or raw).strip()
+        if not content and ":" in raw:
+            content = raw.split(":", 1)[-1].strip()
+        if not content:
+            content = raw
+        if content:
+            return {"action": "add_survey_questions", "content": content}
+    m = re.search(r"(?:add|store|save)\s+(?:to\s+(?:the\s+)?(?:db|database)|in\s+(?:mcp\s+)?(?:server\s+)?db)\s*(?::)?\s*(.*)", instruction_lower, re.DOTALL | re.I)
+    if m:
+        content = (m.group(1) or raw).strip()
+        if not content and ":" in raw:
+            content = raw.split(":", 1)[-1].strip()
+        if content:
+            return {"action": "add_survey_questions", "content": content}
     # create / add / insert
-    m = re.search(r"(?:add|create|insert)\s+(?:a\s+)?(?:record\s+)?(?:in\s+)?(?:table\s+)?['\"]?(\w+)['\"]?\s*(?:with\s+)?(.*)", instruction, re.DOTALL | re.I)
+    m = re.search(r"(?:add|create|insert)\s+(?:a\s+)?(?:record\s+)?(?:in\s+)?(?:table\s+)?['\"]?(\w+)['\"]?\s*(?:with\s+)?(.*)", instruction_lower, re.DOTALL | re.I)
     if m:
         table = m.group(1)
         rest = m.group(2).strip()
@@ -121,6 +169,14 @@ def execute_instruction(instruction: str) -> dict:
     table_name = parsed.get("table_name", "default")
 
     try:
+        if action == "add_survey_questions":
+            content = parsed.get("content", "")
+            questions = _split_survey_questions(content)
+            created = []
+            for q in questions:
+                rec = db.create_record("survey_questions", {"text": q})
+                created.append(rec)
+            return {"success": True, "action": "add_survey_questions", "result": {"created": len(created), "records": created}}
         if action == "create":
             out = db.create_record(table_name, parsed.get("data", {}))
             return {"success": True, "action": "create", "result": out}

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 import database
 from config import OLLAMA_HOST
+from services.mcp_client import call_mcp_execute_instruction, should_use_mcp_db
 from services.ollama_client import (
     get_running_models,
     generate_response,
@@ -223,8 +224,22 @@ def api_active_model_capabilities():
 
 
 @app.post("/api/prompt", tags=["Prompt"])
-def api_prompt(body: PromptRequest):
-    """Send prompt to the active model and return response. Optionally stream."""
+async def api_prompt(body: PromptRequest):
+    """Send prompt to the active model and return response. When user asks to add/store in DB, uses MCP server (mcp_server_1)."""
+    if should_use_mcp_db(body.prompt):
+        try:
+            mcp_result = await call_mcp_execute_instruction(body.prompt)
+            if mcp_result.get("success"):
+                result = mcp_result.get("result", mcp_result)
+                if isinstance(result, dict) and "created" in result:
+                    msg = f"Added {result.get('created', 0)} item(s) to the database (MCP server)."
+                else:
+                    msg = f"Done. Database result: {json.dumps(result, indent=2)}"
+                return {"response": msg, "model": "mcp_server_1", "mcp_result": mcp_result}
+            return {"response": f"Database action failed: {mcp_result.get('error', mcp_result)}", "model": "mcp_server_1", "mcp_result": mcp_result}
+        except Exception as e:
+            return {"response": f"Could not reach MCP server (is it running on port 8001?): {e}", "model": "mcp_server_1"}
+
     active = database.get_setting("active_model")
     if not active:
         try:
