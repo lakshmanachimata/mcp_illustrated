@@ -5,7 +5,7 @@ Stream events (ToolCall, ToolCallResult) are used to log MCP tool invocations.
 """
 import logging
 
-from config import MCP_SERVER_URL, SYSTEM_PROMPT
+from config import MCP_SERVER_1_URL, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -22,15 +22,15 @@ def _tool_name_and_desc(tool) -> tuple[str, str]:
 
 
 async def get_mcp_tools():
-    """Load tools from MCP server (streamable HTTP at MCP_SERVER_URL). Called on each agent query to reflect current MCP server capabilities."""
+    """Load tools from MCP server (streamable HTTP at MCP_SERVER_1_URL). Called on each agent query to reflect current MCP server capabilities."""
     try:
         from llama_index.tools.mcp import aget_tools_from_mcp_url
     except ImportError:
         raise RuntimeError(
             "llama-index-tools-mcp not installed. pip install llama-index-tools-mcp"
         )
-    tools = await aget_tools_from_mcp_url(MCP_SERVER_URL)
-    logger.info("Loaded %s MCP tools from %s", len(tools), MCP_SERVER_URL)
+    tools = await aget_tools_from_mcp_url(MCP_SERVER_1_URL)
+    logger.info("Loaded %s MCP tools from %s", len(tools), MCP_SERVER_1_URL)
     # Log capabilities so we can confirm create_table etc. are visible to the agent
     names = []
     for t in tools:

@@ -2,7 +2,7 @@
 import asyncio
 import json
 
-from config import MCP_SERVER_URL
+from config import MCP_SERVER_1_URL
 
 
 def _call_mcp_sync(instruction: str) -> dict:
@@ -15,7 +15,7 @@ def _call_mcp_sync(instruction: str) -> dict:
         return {"success": False, "error": "MCP client not installed (pip install mcp[cli])"}
 
     async def _do():
-        async with streamable_http_client(MCP_SERVER_URL) as (read_stream, write_stream, _):
+        async with streamable_http_client(MCP_SERVER_1_URL) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 result = await session.call_tool("execute_instruction", arguments={"instruction": instruction})
