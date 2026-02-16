@@ -2,6 +2,7 @@
 MCP server exposing tools as capabilities for the LLM service.
 Tools are annotated so the agent can discover and run queries against the local database.
 """
+import json
 import os
 import re
 from typing import Any
@@ -47,6 +48,16 @@ def find_records_by_field(table_name: str, field_name: str, field_value: str | i
     return db.find_records_by_field(table_name, field_name, field_value)
 
 
+@mcp.tool(
+    description="Capability: Find one record by a field value, update it with given data, and return the updated record. Use for 'update user X and get user details' (e.g. table_name='users', field_name='name', field_value='lakshmana', update_data={'status': 'inactive'}). Record data can contain any fields; table schema is informational only."
+)
+def find_update_and_get_record(
+    table_name: str, field_name: str, field_value: str | int | float | bool, update_data: dict[str, Any]
+) -> dict | None:
+    """Find the first record where data[field_name]==field_value, merge update_data into it, return the updated record. E.g. set status inactive and get user: table_name='users', field_name='name', field_value='lakshmana', update_data={'status': 'inactive'}."""
+    return db.find_update_and_get(table_name, field_name, field_value, update_data)
+
+
 @mcp.tool(description="Capability: Run a query to update an existing record. data is merged with existing fields.")
 def update_record(table_name: str, record_id: int, data: dict[str, Any]) -> dict | None:
     """Update an existing record. data is merged with existing fields. Returns null if record not found."""
@@ -67,7 +78,17 @@ def list_tables() -> list[str]:
 
 
 def _parse_fields(fields: str | list[str] | list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Parse fields from prompt: 'name, email, age' or ['name','email'] or [{'name':'name','type':'text'}]."""
+    """Parse fields: JSON array string, or 'name, email, age', or ['name','email'] or [{'name':'Name','type':'text'}]."""
+    # If string looks like JSON array of {name, type}, parse it so we get one column per field
+    if isinstance(fields, str):
+        s = fields.strip()
+        if s.startswith("[") and (s.endswith("]") or "]" in s):
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return _parse_fields(parsed)
+            except json.JSONDecodeError:
+                pass
     if isinstance(fields, list):
         if not fields:
             return []
