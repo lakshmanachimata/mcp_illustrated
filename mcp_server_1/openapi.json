@@ -113,6 +113,88 @@
         }
       }
     },
+    "/tools/find_records_by_field": {
+      "post": {
+        "summary": "find_records_by_field",
+        "description": "Find records where a field equals a value (e.g. find user by name: table_name='users', field_name='name', field_value='lakshmana'). Returns list of full records.",
+        "operationId": "find_records_by_field",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "table_name",
+                  "field_name",
+                  "field_value"
+                ],
+                "properties": {
+                  "table_name": {
+                    "type": "string"
+                  },
+                  "field_name": {
+                    "type": "string"
+                  },
+                  "field_value": {
+                    "description": "Value to match (string, number, or boolean)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of matching records"
+          }
+        }
+      }
+    },
+    "/tools/find_update_and_get_record": {
+      "post": {
+        "summary": "find_update_and_get_record",
+        "description": "Find one record by field value, update it with given data, and return the updated record (e.g. table_name='users', field_name='name', field_value='lakshmana', update_data={'status': 'inactive'}).",
+        "operationId": "find_update_and_get_record",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "table_name",
+                  "field_name",
+                  "field_value",
+                  "update_data"
+                ],
+                "properties": {
+                  "table_name": {
+                    "type": "string"
+                  },
+                  "field_name": {
+                    "type": "string"
+                  },
+                  "field_value": {
+                    "description": "Value to match"
+                  },
+                  "update_data": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "description": "Fields to merge into the record"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated record or null if no match"
+          }
+        }
+      }
+    },
     "/tools/update_record": {
       "post": {
         "summary": "update_record",

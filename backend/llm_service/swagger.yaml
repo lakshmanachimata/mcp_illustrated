@@ -208,8 +208,8 @@ paths:
       tags:
       - Prompt
       summary: Api Prompt
-      description: Send prompt to the active model and return response. Table/schema
-        requests are routed to the agent (MCP capabilities).
+      description: Send prompt to the agent; the agent parses intent and calls MCP
+        tools when needed. No regex routing.
       operationId: api_prompt_api_prompt_post
       requestBody:
         content:
