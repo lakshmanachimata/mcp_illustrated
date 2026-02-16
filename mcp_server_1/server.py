@@ -41,6 +41,12 @@ def list_records(table_name: str, limit: int = 100) -> list[dict]:
     return db.list_records(table_name, limit=limit)
 
 
+@mcp.tool(description="Capability: Find records in a table where a field equals a value (e.g. find user by name: table_name='users', field_name='name', field_value='lakshmana'). Use when the user asks to find/update/get a user or record by name or other field.")
+def find_records_by_field(table_name: str, field_name: str, field_value: str | int | float | bool) -> list[dict]:
+    """Find records where data[field_name] == field_value. E.g. find user with name 'lakshmana': table_name='users', field_name='name', field_value='lakshmana'. Returns list of full records (id, data, etc.)."""
+    return db.find_records_by_field(table_name, field_name, field_value)
+
+
 @mcp.tool(description="Capability: Run a query to update an existing record. data is merged with existing fields.")
 def update_record(table_name: str, record_id: int, data: dict[str, Any]) -> dict | None:
     """Update an existing record. data is merged with existing fields. Returns null if record not found."""

@@ -88,6 +88,18 @@ def list_records(table_name: str, limit: int = 100) -> list[dict]:
     return result
 
 
+def find_records_by_field(table_name: str, field_name: str, field_value: str | int | float | bool) -> list[dict]:
+    """Return records in the table whose data has field_name equal to field_value (e.g. find user by name)."""
+    records = list_records(table_name, limit=500)
+    out = []
+    for r in records:
+        data = r.get("data") or {}
+        val = data.get(field_name)
+        if val == field_value or (isinstance(field_value, str) and str(val).strip().lower() == str(field_value).strip().lower()):
+            out.append(r)
+    return out
+
+
 def update_record(table_name: str, record_id: int, data: dict) -> dict | None:
     """Update a record. Merges with existing data (shallow merge)."""
     existing = get_record(table_name, record_id)
