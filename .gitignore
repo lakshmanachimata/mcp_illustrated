@@ -63,6 +63,7 @@ db.sqlite3-journal
 llm_service.db
 mcp_server_1.db
 mcp_server_1/mcp_server_1.db
+mcp_server_2/zvec_data/
 
 # Flask stuff:
 instance/

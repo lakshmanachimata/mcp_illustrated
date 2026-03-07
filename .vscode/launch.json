@@ -40,7 +40,24 @@
       "program": "${workspaceFolder}/mcp_server_1/server.py",
       "python": "${workspaceFolder}/mcp_server_1/.venv/bin/python",
       "cwd": "${workspaceFolder}/mcp_server_1",
-      "env": { "MCP_PORT": "8001", "FASTMCP_PORT": "8001" },
+      "env": {
+        "MCP_PORT": "8001",
+        "FASTMCP_PORT": "8001"
+      },
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "MCP Server 2 (Scraper + Qdrant)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/mcp_server_2/server.py",
+      "python": "${workspaceFolder}/mcp_server_2/.venv/bin/python",
+      "cwd": "${workspaceFolder}/mcp_server_2",
+      "env": {
+        "MCP_PORT": "8002",
+        "FASTMCP_PORT": "8002"
+      },
       "justMyCode": false,
       "console": "integratedTerminal"
     }
@@ -61,6 +78,14 @@
     {
       "name": "Backend + Frontend + MCP Server (debug)",
       "configurations": ["LLM Service (no reload)", "Web UI", "MCP Server (Local DB)"]
+    },
+    {
+      "name": "Backend + Frontend + MCP Server + MCP Server 2",
+      "configurations": ["LLM Service (Ollama)", "Web UI", "MCP Server (Local DB)", "MCP Server 2 (Scraper + Qdrant)"]
+    },
+    {
+      "name": "Backend + Frontend + MCP Server + MCP Server 2 (debug)",
+      "configurations": ["LLM Service (no reload)", "Web UI", "MCP Server (Local DB)", "MCP Server 2 (Scraper + Qdrant)"]
     }
   ]
 }

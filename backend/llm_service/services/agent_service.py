@@ -5,7 +5,7 @@ Stream events (ToolCall, ToolCallResult) are used to log MCP tool invocations.
 """
 import logging
 
-from config import MCP_SERVER_1_URL, SYSTEM_PROMPT
+from config import MCP_SERVER_1_URL, MCP_SERVER_2_URL, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def _tool_name_and_desc(tool) -> tuple[str, str]:
 
 
 async def get_mcp_tools():
-    """Load tools from MCP server (streamable HTTP at MCP_SERVER_1_URL). Called on each agent query to reflect current MCP server capabilities."""
+    """Load tools from MCP server(s). Uses MCP_SERVER_1_URL (DB) and, if set, MCP_SERVER_2_URL (scraper + Qdrant). Called on each agent query."""
     try:
         from llama_index.tools.mcp import aget_tools_from_mcp_url
     except ImportError:
@@ -31,7 +31,13 @@ async def get_mcp_tools():
         )
     tools = await aget_tools_from_mcp_url(MCP_SERVER_1_URL)
     logger.info("Loaded %s MCP tools from %s", len(tools), MCP_SERVER_1_URL)
-    # Log capabilities so we can confirm create_table etc. are visible to the agent
+    if (MCP_SERVER_2_URL or "").strip():
+        try:
+            tools_2 = await aget_tools_from_mcp_url(MCP_SERVER_2_URL)
+            tools = list(tools) + list(tools_2)
+            logger.info("Loaded %s additional tools from %s (total %s)", len(tools_2), MCP_SERVER_2_URL, len(tools))
+        except Exception as e:
+            logger.warning("Could not load MCP server 2 tools from %s: %s", MCP_SERVER_2_URL, e)
     names = []
     for t in tools:
         name, desc = _tool_name_and_desc(t)
