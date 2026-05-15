@@ -10,9 +10,12 @@ Requires: pip install -r requirements-mcp-client.txt
           Ollama running (default http://127.0.0.1:11434) with a tool-capable chat model;
           for vector index/embeddings, pull an embed model on Ollama (e.g. ``embeddinggemma``).
 
-Examples:
+Examples (vector data is never read here; MCP tools speak to ``mcp_server_2/server.py``, which owns the DB):
   python multi_mcp_ollama_client.py
   python multi_mcp_ollama_client.py -q "List users, show alice's leaves, and vector_index_stats"
+  # Optional: choose where ``mcp_server_2`` stores SQLite (passed into that server subprocess only).
+  VECTOR_MCP_DB=/path/to/vector_mcp.db python multi_mcp_ollama_client.py -q "vector_index_stats"
+  python multi_mcp_ollama_client.py --vector-mcp-db mcp_server_2/vector_mcp.db -q "query_vectors about invoices"
   OLLAMA_MODEL=qwen2.5:latest python multi_mcp_ollama_client.py --demo
 """
 
@@ -55,12 +58,15 @@ Users have integer id, name, age, gender. Tasks belong to a user (user_id) with 
 - list_tasks: omit user_id for all tasks; pass user_id to filter one user.
 - update_user / update_task: omit optional fields you are not changing.
 
-## C) Folder vector index (embedding / RAG tools)
-- refresh_vector_db: rebuild the index from all PDF files under ``mcp_server_2/pdfs`` (removes old chunks for that folder, re-embeds). The server does not run this automatically on startup unless it is started with ``VECTOR_MCP_STARTUP_REFRESH=1``.
-- index_folder: chunk and embed files under any directory (supports .pdf and text types; parameters include folder_path, glob_pattern, extensions, chunk_size, chunk_overlap). Server uses Ollama embeddings.
-- query_vectors: semantic search (query, top_k).
-- vector_index_stats: counts and ``source_paths`` (all indexed paths).
-- clear_vector_index: wipe stored chunks.
+## C) Folder vector index (via **mcp_server_2** MCP tools only)
+This assistant never opens the vector SQLite database file. **`mcp_server_2/server.py`** is spawned by the MCP host; it owns storage and embeddings. You only interact through named tools routed to that server (e.g. ``vector_index_stats``, ``refresh_vector_db``, ``query_vectors``).
+
+On the server process only: SQLite path ``VECTOR_MCP_DB`` (default ``mcp_server_2/vector_mcp.db``), embed model ``VECTOR_MCP_EMBED_MODEL``, Ollama base ``VECTOR_MCP_OLLAMA_URL`` or ``OLLAMA_HOST``. Default PDF library folder: ``mcp_server_2/pdfs``.
+
+- **No automatic rebuild on server start.** Call ``refresh_vector_db`` when the user wants to re-embed all PDFs under ``mcp_server_2/pdfs`` (can take minutes). Hosts may start the server with ``VECTOR_MCP_STARTUP_REFRESH=1`` to rebuild once at process start (avoid two server processes sharing one DB).
+- **Optional startup stats:** ``VECTOR_MCP_STARTUP_INDEX_STATS=1`` on the server logs chunk/file counts at boot (otherwise it skips DB reads for fast start).
+- **CLI bulk refresh (runs server code standalone, not this client):** ``python mcp_server_2/manual_refresh_pdfs.py`` with the server's env — not an MCP conversation.
+- **Tools (all MCP calls into mcp_server_2):** ``refresh_vector_db``, ``index_folder``, ``query_vectors``, ``vector_index_stats`` (``chunk_count``, ``file_count``, ``source_paths``, ``sample_paths``), ``clear_vector_index``.
 
 If a question applies to only one system, use only those tools. If it spans several, call tools from each as needed.
 After tool results, answer concisely in plain English."""
@@ -215,6 +221,7 @@ async def run_multi_sessions(
     leave_script: Path,
     users_tasks_script: Path,
     vector_script: Path,
+    vector_env_extra: dict[str, str] | None,
     max_rounds: int,
     verbose: bool,
     query: str | None,
@@ -222,6 +229,8 @@ async def run_multi_sessions(
     demo: bool,
 ) -> None:
     env = {**os.environ}
+    # Spawn env for mcp_server_2 only; this script never imports vector_store or opens vector_mcp.db.
+    env_vec = {**env, **(vector_env_extra or {})}
     params_leave = StdioServerParameters(
         command=str(python_exe),
         args=[str(leave_script)],
@@ -235,7 +244,7 @@ async def run_multi_sessions(
     params_vec = StdioServerParameters(
         command=str(python_exe),
         args=[str(vector_script)],
-        env=env,
+        env=env_vec,
     )
 
     async with stdio_client(params_leave) as (read_l, write_l):
@@ -296,7 +305,9 @@ async def run_multi_sessions(
                                 if interactive:
                                     print(
                                         "Multi MCP (leave + users/tasks + vector) + Ollama — type a question. "
-                                        "Commands: quit | exit | q  (or Ctrl-D).\n",
+                                        "Commands: quit | exit | q  (or Ctrl-D).\n"
+                                        "Vector index: MCP tools → mcp_server_2/server.py only (no direct SQLite from "
+                                        "this client). Extra --vector-* flags set env for that spawned server.\n",
                                         flush=True,
                                     )
                                     while True:
@@ -327,7 +338,11 @@ async def run_multi_sessions(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Ollama client for leave + users/tasks + vector MCP (three stdio servers)."
+        description=(
+            "Ollama client for leave + users/tasks + vector via **three stdio MCP servers** (no direct DB access)."
+            " Vector index data is accessed only through MCP tools to mcp_server_2/server.py; optional --vector-* "
+            "arguments set environment variables for that spawned server process."
+        )
     )
     parser.add_argument(
         "-q",
@@ -369,19 +384,66 @@ def main() -> None:
         default=DEFAULT_VECTOR_SERVER,
         help="Path to mcp_server_2/server.py",
     )
+    parser.add_argument(
+        "--vector-mcp-db",
+        type=str,
+        default="",
+        metavar="PATH",
+        help=(
+            "Pass VECTOR_MCP_DB into the **mcp_server_2** child process only. This client never opens SQLite; "
+            "the MCP server chooses the DB file."
+        ),
+    )
+    parser.add_argument(
+        "--vector-startup-refresh",
+        action="store_true",
+        help="Forwarded to **mcp_server_2** only: VECTOR_MCP_STARTUP_REFRESH=1 (server rebuilds pdf index once at startup).",
+    )
+    parser.add_argument(
+        "--vector-startup-index-stats",
+        action="store_true",
+        help="Forwarded to **mcp_server_2** only: VECTOR_MCP_STARTUP_INDEX_STATS=1 (server logs chunk/file counts at boot).",
+    )
+    parser.add_argument(
+        "--vector-ollama-url",
+        type=str,
+        default="",
+        metavar="URL",
+        help="Forwarded to **mcp_server_2** only: VECTOR_MCP_OLLAMA_URL (embeddings; this client talks to its own URL for chat).",
+    )
+    parser.add_argument(
+        "--vector-embed-model",
+        type=str,
+        default="",
+        metavar="NAME",
+        help="Forwarded to **mcp_server_2** only: VECTOR_MCP_EMBED_MODEL (embed model name on Ollama).",
+    )
     parser.add_argument("--max-rounds", type=int, default=16, help="Max tool rounds per question.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Log rounds and tool I/O to stderr.")
     args = parser.parse_args()
 
-    for label, p in (
-        ("leave server", args.leave_server),
-        ("users/tasks server", args.users_tasks_server),
-        ("vector server", args.vector_server),
-    ):
-        if not p.is_file():
-            print(f"{label} not found: {p}", file=sys.stderr)
-            sys.exit(1)
+    if not args.leave_server.is_file():
+        print(f"leave server not found: {args.leave_server}", file=sys.stderr)
+        sys.exit(1)
+    if not args.users_tasks_server.is_file():
+        print(f"users/tasks server not found: {args.users_tasks_server}", file=sys.stderr)
+        sys.exit(1)
+    if not args.vector_server.is_file():
+        print(f"vector server not found: {args.vector_server}", file=sys.stderr)
+        sys.exit(1)
 
+    vec_extra: dict[str, str] = {}
+    if args.vector_mcp_db.strip():
+        vec_extra["VECTOR_MCP_DB"] = str(Path(args.vector_mcp_db).expanduser().resolve())
+    if args.vector_startup_refresh:
+        vec_extra["VECTOR_MCP_STARTUP_REFRESH"] = "1"
+    if args.vector_startup_index_stats:
+        vec_extra["VECTOR_MCP_STARTUP_INDEX_STATS"] = "1"
+    if args.vector_ollama_url.strip():
+        vec_extra["VECTOR_MCP_OLLAMA_URL"] = args.vector_ollama_url.strip().rstrip("/")
+    if args.vector_embed_model.strip():
+        vec_extra["VECTOR_MCP_EMBED_MODEL"] = args.vector_embed_model.strip()
+    vector_env_extra = vec_extra if vec_extra else None
     if args.demo:
         asyncio.run(
             run_multi_sessions(
@@ -391,6 +453,7 @@ def main() -> None:
                 leave_script=args.leave_server,
                 users_tasks_script=args.users_tasks_server,
                 vector_script=args.vector_server,
+                vector_env_extra=vector_env_extra,
                 max_rounds=args.max_rounds,
                 verbose=args.verbose,
                 query=None,
@@ -409,6 +472,7 @@ def main() -> None:
                 leave_script=args.leave_server,
                 users_tasks_script=args.users_tasks_server,
                 vector_script=args.vector_server,
+                vector_env_extra=vector_env_extra,
                 max_rounds=args.max_rounds,
                 verbose=args.verbose,
                 query=args.query,
@@ -426,6 +490,7 @@ def main() -> None:
             leave_script=args.leave_server,
             users_tasks_script=args.users_tasks_server,
             vector_script=args.vector_server,
+            vector_env_extra=vector_env_extra,
             max_rounds=args.max_rounds,
             verbose=args.verbose,
             query=None,
