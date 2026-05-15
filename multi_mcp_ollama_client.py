@@ -1,16 +1,18 @@
 """
-Multi–MCP Ollama client: connects to two stdio MCP servers at once.
+Multi–MCP Ollama client: connects to three stdio MCP servers at once.
 
 Default servers (repo layout):
   - mcp_server_0/leave_mcp_server.py — employee leave records (JSON store)
   - mcp_server_1/server.py — users & tasks (SQLite)
+  - mcp_server_2/server.py — folder vector index (SQLite + Ollama embeddings)
 
-Requires: pip install mcp httpx (see project requirements or mcp_server_1/requirements.txt)
-          Ollama running (default http://127.0.0.1:11434) with a tool-capable model.
+Requires: pip install -r requirements-mcp-client.txt
+          Ollama running (default http://127.0.0.1:11434) with a tool-capable chat model;
+          for vector index/embeddings, pull an embed model on Ollama (e.g. ``embeddinggemma``).
 
 Examples:
   python multi_mcp_ollama_client.py
-  python multi_mcp_ollama_client.py -q "List all users, then list leaves for alice"
+  python multi_mcp_ollama_client.py -q "List users, show alice's leaves, and vector_index_stats"
   OLLAMA_MODEL=qwen2.5:latest python multi_mcp_ollama_client.py --demo
 """
 
@@ -38,8 +40,9 @@ except ImportError:
 ROOT = Path(__file__).resolve().parent
 DEFAULT_LEAVE_SERVER = ROOT / "mcp_server_0" / "leave_mcp_server.py"
 DEFAULT_USERS_TASKS_SERVER = ROOT / "mcp_server_1" / "server.py"
+DEFAULT_VECTOR_SERVER = ROOT / "mcp_server_2" / "server.py"
 
-SYSTEM_PROMPT = """You are a single assistant with access to two separate systems via tools. Use only the tools; do not invent data.
+SYSTEM_PROMPT = """You are a single assistant with access to three separate systems via tools. Use only the tools; do not invent data.
 
 ## A) Employee leave (leave tools)
 Three fixed employees: EMP001 Alice Johnson (Engineering), EMP002 Bob Smith (Product), EMP003 Carol Williams (Operations).
@@ -52,7 +55,14 @@ Users have integer id, name, age, gender. Tasks belong to a user (user_id) with 
 - list_tasks: omit user_id for all tasks; pass user_id to filter one user.
 - update_user / update_task: omit optional fields you are not changing.
 
-If a question applies to only one system, use only those tools. If it spans both, call tools from both as needed.
+## C) Folder vector index (embedding / RAG tools)
+- refresh_vector_db: rebuild the index from all PDF files under ``mcp_server_2/pdfs`` (removes old chunks for that folder, re-embeds). The server does not run this automatically on startup unless it is started with ``VECTOR_MCP_STARTUP_REFRESH=1``.
+- index_folder: chunk and embed files under any directory (supports .pdf and text types; parameters include folder_path, glob_pattern, extensions, chunk_size, chunk_overlap). Server uses Ollama embeddings.
+- query_vectors: semantic search (query, top_k).
+- vector_index_stats: counts and ``source_paths`` (all indexed paths).
+- clear_vector_index: wipe stored chunks.
+
+If a question applies to only one system, use only those tools. If it spans several, call tools from each as needed.
 After tool results, answer concisely in plain English."""
 
 
@@ -197,13 +207,14 @@ async def _input_line(prompt: str) -> str | None:
     return await loop.run_in_executor(None, _read)
 
 
-async def run_dual_sessions(
+async def run_multi_sessions(
     *,
     ollama_url: str,
     model: str,
     python_exe: Path,
     leave_script: Path,
     users_tasks_script: Path,
+    vector_script: Path,
     max_rounds: int,
     verbose: bool,
     query: str | None,
@@ -221,6 +232,11 @@ async def run_dual_sessions(
         args=[str(users_tasks_script)],
         env=env,
     )
+    params_vec = StdioServerParameters(
+        command=str(python_exe),
+        args=[str(vector_script)],
+        env=env,
+    )
 
     async with stdio_client(params_leave) as (read_l, write_l):
         async with ClientSession(read_l, write_l) as session_leave:
@@ -230,88 +246,93 @@ async def run_dual_sessions(
                 async with ClientSession(read_u, write_u) as session_ut:
                     await session_ut.initialize()
                     listed_u = await session_ut.list_tools()
+                    async with stdio_client(params_vec) as (read_v, write_v):
+                        async with ClientSession(read_v, write_v) as session_vec:
+                            await session_vec.initialize()
+                            listed_v = await session_vec.list_tools()
 
-                    ollama_tools, call_tool = build_tool_router(
-                        ("leave", session_leave, listed_l.tools),
-                        ("users_tasks", session_ut, listed_u.tools),
-                    )
-
-                    async with httpx.AsyncClient() as http:
-                        if demo:
-                            queries = [
-                                "Using only user/task tools: list all users.",
-                                "Using only leave tools: show human-readable leaves for alice.",
-                                "Briefly summarize what both systems are for (no tool calls needed if you already know from context).",
-                            ]
-                            for q in queries:
-                                print(f"\n=== Q: {q}\n", flush=True)
-                                out = await answer_with_tools(
-                                    call_tool,
-                                    http,
-                                    ollama_url=ollama_url,
-                                    model=model,
-                                    ollama_tools=ollama_tools,
-                                    query=q,
-                                    max_rounds=max_rounds,
-                                    verbose=verbose,
-                                )
-                                print(out, flush=True)
-                            return
-
-                        if query is not None:
-                            out = await answer_with_tools(
-                                call_tool,
-                                http,
-                                ollama_url=ollama_url,
-                                model=model,
-                                ollama_tools=ollama_tools,
-                                query=query,
-                                max_rounds=max_rounds,
-                                verbose=verbose,
+                            ollama_tools, call_tool = build_tool_router(
+                                ("leave", session_leave, listed_l.tools),
+                                ("users_tasks", session_ut, listed_u.tools),
+                                ("vector", session_vec, listed_v.tools),
                             )
-                            print(out)
-                            return
 
-                        if interactive:
-                            print(
-                                "Multi MCP (leave + users/tasks) + Ollama — type a question. "
-                                "Commands: quit | exit | q  (or Ctrl-D).\n",
-                                flush=True,
-                            )
-                            while True:
-                                line = await _input_line("> ")
-                                if line is None:
-                                    print("\n(exit)", flush=True)
-                                    break
-                                q = line.strip()
-                                if not q:
-                                    continue
-                                if q.lower() in ("quit", "exit", "q"):
-                                    break
-                                try:
+                            async with httpx.AsyncClient() as http:
+                                if demo:
+                                    queries = [
+                                        "Using only user/task tools: list all users.",
+                                        "Using only leave tools: show human-readable leaves for alice.",
+                                        "Using only vector tools: call vector_index_stats and report chunk_count, file_count, and source_paths length.",
+                                    ]
+                                    for q in queries:
+                                        print(f"\n=== Q: {q}\n", flush=True)
+                                        out = await answer_with_tools(
+                                            call_tool,
+                                            http,
+                                            ollama_url=ollama_url,
+                                            model=model,
+                                            ollama_tools=ollama_tools,
+                                            query=q,
+                                            max_rounds=max_rounds,
+                                            verbose=verbose,
+                                        )
+                                        print(out, flush=True)
+                                    return
+
+                                if query is not None:
                                     out = await answer_with_tools(
                                         call_tool,
                                         http,
                                         ollama_url=ollama_url,
                                         model=model,
                                         ollama_tools=ollama_tools,
-                                        query=q,
+                                        query=query,
                                         max_rounds=max_rounds,
                                         verbose=verbose,
                                     )
-                                except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
-                                    out = f"(error: {exc})"
-                                print(out, "\n", flush=True)
+                                    print(out)
+                                    return
+
+                                if interactive:
+                                    print(
+                                        "Multi MCP (leave + users/tasks + vector) + Ollama — type a question. "
+                                        "Commands: quit | exit | q  (or Ctrl-D).\n",
+                                        flush=True,
+                                    )
+                                    while True:
+                                        line = await _input_line("> ")
+                                        if line is None:
+                                            print("\n(exit)", flush=True)
+                                            break
+                                        q = line.strip()
+                                        if not q:
+                                            continue
+                                        if q.lower() in ("quit", "exit", "q"):
+                                            break
+                                        try:
+                                            out = await answer_with_tools(
+                                                call_tool,
+                                                http,
+                                                ollama_url=ollama_url,
+                                                model=model,
+                                                ollama_tools=ollama_tools,
+                                                query=q,
+                                                max_rounds=max_rounds,
+                                                verbose=verbose,
+                                            )
+                                        except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+                                            out = f"(error: {exc})"
+                                        print(out, "\n", flush=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Ollama client for leave MCP + users/tasks MCP (two stdio servers)."
+        description="Ollama client for leave + users/tasks + vector MCP (three stdio servers)."
     )
     parser.add_argument(
         "-q",
         "--query",
-        help="Single natural-language question (may use both backends).",
+        help="Single natural-language question (may use any of the three backends).",
     )
     parser.add_argument("--demo", action="store_true", help="Run sample queries (needs Ollama).")
     parser.add_argument(
@@ -328,7 +349,7 @@ def main() -> None:
         "--python",
         type=Path,
         default=Path(sys.executable),
-        help="Python used to spawn both MCP servers (default: current interpreter).",
+        help="Python used to spawn all MCP servers (default: current interpreter).",
     )
     parser.add_argument(
         "--leave-server",
@@ -342,6 +363,12 @@ def main() -> None:
         default=DEFAULT_USERS_TASKS_SERVER,
         help="Path to mcp_server_1/server.py",
     )
+    parser.add_argument(
+        "--vector-server",
+        type=Path,
+        default=DEFAULT_VECTOR_SERVER,
+        help="Path to mcp_server_2/server.py",
+    )
     parser.add_argument("--max-rounds", type=int, default=16, help="Max tool rounds per question.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Log rounds and tool I/O to stderr.")
     args = parser.parse_args()
@@ -349,6 +376,7 @@ def main() -> None:
     for label, p in (
         ("leave server", args.leave_server),
         ("users/tasks server", args.users_tasks_server),
+        ("vector server", args.vector_server),
     ):
         if not p.is_file():
             print(f"{label} not found: {p}", file=sys.stderr)
@@ -356,12 +384,13 @@ def main() -> None:
 
     if args.demo:
         asyncio.run(
-            run_dual_sessions(
+            run_multi_sessions(
                 ollama_url=args.ollama_url,
                 model=args.model,
                 python_exe=args.python,
                 leave_script=args.leave_server,
                 users_tasks_script=args.users_tasks_server,
+                vector_script=args.vector_server,
                 max_rounds=args.max_rounds,
                 verbose=args.verbose,
                 query=None,
@@ -373,12 +402,13 @@ def main() -> None:
 
     if args.query:
         asyncio.run(
-            run_dual_sessions(
+            run_multi_sessions(
                 ollama_url=args.ollama_url,
                 model=args.model,
                 python_exe=args.python,
                 leave_script=args.leave_server,
                 users_tasks_script=args.users_tasks_server,
+                vector_script=args.vector_server,
                 max_rounds=args.max_rounds,
                 verbose=args.verbose,
                 query=args.query,
@@ -389,12 +419,13 @@ def main() -> None:
         return
 
     asyncio.run(
-        run_dual_sessions(
+        run_multi_sessions(
             ollama_url=args.ollama_url,
             model=args.model,
             python_exe=args.python,
             leave_script=args.leave_server,
             users_tasks_script=args.users_tasks_server,
+            vector_script=args.vector_server,
             max_rounds=args.max_rounds,
             verbose=args.verbose,
             query=None,

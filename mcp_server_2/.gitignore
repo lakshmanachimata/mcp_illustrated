@@ -7,6 +7,6 @@
 *.sqlite-journal
 *.log
 __pycache__/
-.pytest_cache/
 .venv/
 venv/
+.vector_mcp.sqlite.write.lock

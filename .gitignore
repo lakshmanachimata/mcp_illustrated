@@ -66,6 +66,11 @@ mcp_server_1/mcp_server_1.db
 mcp_server_2/zvec_data/
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-journal
 *.log
 __pycache__/
 .pytest_cache/
@@ -78,6 +83,7 @@ instance/
 
 # Scrapy stuff:
 .scrapy
+*.pdf
 
 # Sphinx documentation
 docs/_build/
