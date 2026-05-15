@@ -64,6 +64,13 @@ llm_service.db
 mcp_server_1.db
 mcp_server_1/mcp_server_1.db
 mcp_server_2/zvec_data/
+*.db
+*.db-journal
+*.log
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
 
 # Flask stuff:
 instance/
