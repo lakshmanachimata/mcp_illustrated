@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """Rebuild ``pdfs/*.pdf`` into ``vector_mcp.db`` (same work as MCP ``refresh_vector_db``).
 
