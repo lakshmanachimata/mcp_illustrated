@@ -1,0 +1,8 @@
+# agentic_rag: LangGraph agent + dynamic MCP server selection
+# Install: pip install -r agentic_rag/requirements.txt
+mcp>=1.8.0
+httpx>=0.27.0
+langgraph>=0.2.60
+langchain-core>=0.3.0
+langchain-mcp-adapters>=0.1.0
+langchain-ollama>=0.2.0
